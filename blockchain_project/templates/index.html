@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Blockchain Explorer</title>
+</head>
+<body>
+    <h1>Blockchain Explorer</h1>
+    <h2>Chain</h2>
+    <ul>
+    {% for block in blockchain.chain %}
+        <li>
+            <strong>Block {{ block.index }}</strong><br>
+            Hash: {{ block.hash }}<br>
+            Previous Hash: {{ block.previous_hash }}<br>
+            Timestamp: {{ block.timestamp }}<br>
+            Validator: {{ block.validator }}<br>
+            Transactions: {{ block.transactions|length }}
+        </li>
+    {% endfor %}
+    </ul>
+</body>
+</html>
