@@ -3,6 +3,10 @@ import time
 import json
 from ecdsa import SigningKey, SECP256k1, VerifyingKey
 import base64
+from Crypto.Hash import SHA256
+from Crypto.PublicKey import RSA
+from Crypto.Signature import pkcs1_15
+import random
 
 class Transaction:
     def __init__(self, sender, recipient, amount, fee, data=None):
@@ -94,3 +98,67 @@ class Blockchain:
     def replace_chain(self, new_chain):
         if len(new_chain) > len(self.chain) and self.is_chain_valid(new_chain):
             self.chain = new_chain
+
+class RingSignature:
+    @staticmethod
+    def generate_key_pair():
+        key = RSA.generate(2048)
+        return key, key.publickey()
+
+    @staticmethod
+    def create_ring_signature(message, public_keys, signer_key, signer_index):
+        n = len(public_keys)
+        if signer_index < 0 or signer_index >= n:
+            raise ValueError("Invalid signer index")
+
+        message_bytes = message.encode('utf-8')
+
+        v = [random.getrandbits(256) for _ in range(n)]
+        x = random.getrandbits(256)
+
+        ring = []
+        for i in range(n):
+            if i == signer_index:
+                ring.append(x)
+            else:
+                ring.append(SHA256.new(str(v[i]).encode()).digest())
+
+        h = SHA256.new(message_bytes)
+        signature = pkcs1_15.new(signer_key).sign(h)
+
+        return ring, signature
+
+    @staticmethod
+    def verify_ring_signature(message, public_keys, ring, signature):
+        n = len(public_keys)
+        if len(ring) != n:
+            return False
+
+        message_bytes = message.encode('utf-8')
+
+        h = SHA256.new(message_bytes)
+        try:
+            pkcs1_15.new(public_keys[0]).verify(h, signature)
+        except (ValueError, TypeError):
+            return False
+
+        ring_hash = SHA256.new()
+        for i in range(n):
+            ring_hash.update(str(ring[i]).encode())
+
+        return ring_hash.digest() == signature
+
+class PrivateTransaction(Transaction):
+    def __init__(self, sender, recipient, amount, fee, data=None):
+        super().__init__(sender, recipient, amount, fee, data)
+        self.ring_signature = None
+
+    def sign_with_ring(self, public_keys, signer_key, signer_index):
+        message = self.calculate_hash()
+        self.ring_signature = RingSignature.create_ring_signature(message, public_keys, signer_key, signer_index)
+
+    def verify(self, public_keys):
+        if not self.ring_signature:
+            return False
+        message = self.calculate_hash()
+        return RingSignature.verify_ring_signature(message, public_keys, *self.ring_signature)

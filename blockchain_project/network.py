@@ -1,6 +1,7 @@
 import socket
 import threading
 import json
+import random
 from blockchain_core import Transaction
 
 class P2PNetwork:
@@ -9,6 +10,7 @@ class P2PNetwork:
         self.port = port
         self.blockchain = blockchain
         self.peers = set()
+        self.known_nodes = set()  # List of known node addresses
 
     def start(self):
         server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -16,6 +18,10 @@ class P2PNetwork:
         server.listen(5)
         print(f"Node listening on {self.host}:{self.port}")
         
+        # Start peer discovery
+        discovery_thread = threading.Thread(target=self.discover_peers)
+        discovery_thread.start()
+
         while True:
             client, address = server.accept()
             client_handler = threading.Thread(target=self.handle_client, args=(client,))
@@ -30,6 +36,9 @@ class P2PNetwork:
             transaction_data = json.loads(request.split(":", 1)[1])
             transaction = Transaction(**transaction_data)
             self.blockchain.add_transaction(transaction)
+        elif request == "get_peers":
+            response = json.dumps(list(self.peers))
+            client_socket.send(response.encode())
         client_socket.close()
 
     def broadcast_transaction(self, transaction):
@@ -47,3 +56,20 @@ class P2PNetwork:
         if peer not in self.peers:
             self.peers.add(peer)
             self.blockchain.add_node(peer)
+
+    def discover_peers(self):
+        while True:
+            if self.known_nodes:
+                node = random.choice(list(self.known_nodes))
+                try:
+                    host, port = node.split(':')
+                    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                        s.connect((host, int(port)))
+                        s.send("get_peers".encode())
+                        response = s.recv(1024).decode()
+                        new_peers = json.loads(response)
+                        for peer in new_peers:
+                            self.connect_to_peer(*peer.split(':'))
+                except Exception as e:
+                    print(f"Failed to discover peers from {node}: {e}")
+            threading.Timer(60, self.discover_peers).start()  # Run discovery every 60 seconds
